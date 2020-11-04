@@ -1,0 +1,272 @@
+<html>
+<head>
+<title>jsdynamic</title>
+</head>
+<body>
+<h1>toy cpu</h1>
+<script>
+    let HALT = 0;
+    let JUMP = 1;
+    let BNE = 2;
+    let LOAD_SP = 3;
+    let LOAD_EAX_MEM = 4;
+    let LOAD_EAX_IB = 5;
+    let STORE_EAX = 6;
+    let LOAD_EBX_MEM = 7;
+    let LOAD_EBX_IB = 8;
+    let STORE_EBX = 9;
+    let STORE_1 = 10;
+    let INC = 11;
+    let ADD = 12;
+    let MUL = 13;
+    let DIV = 14;
+    let XOR = 15;
+    let b = 64;
+
+	var cpu = {
+		ip: 0, eax:0, ebx:0, sp:b, opCounter:0
+	};
+	
+	//first 64 bytes are code, second 64 bytes are stack/data
+    let mem = new Int8Array(128);
+	// write code
+    let loop = [LOAD_SP, b, STORE_1, LOAD_SP, b,
+        	LOAD_EBX_MEM, LOAD_SP, (b+1), LOAD_EAX_MEM, XOR, DIV , LOAD_EBX_MEM, ADD, STORE_EAX];
+	let jump = [LOAD_SP, b, LOAD_EAX_MEM, INC, STORE_EAX, LOAD_SP, b+2,
+                LOAD_EBX_MEM, BNE, 3];
+    let jump2 = [LOAD_SP, b+3, LOAD_EAX_MEM, INC,
+                STORE_EAX, LOAD_SP, b+4,
+                LOAD_EBX_MEM, BNE, 0];
+    let jump3 = [LOAD_SP, b+5, LOAD_EAX_MEM, INC,
+                STORE_EAX, LOAD_SP, b+6,
+                LOAD_EBX_MEM, BNE, 0];
+    let jump4 = [LOAD_SP, b+7, LOAD_EAX_MEM, INC,
+                STORE_EAX, LOAD_SP, b+8,
+                LOAD_EBX_MEM, BNE, 0];               
+	
+//	let stack = [1, 0, 11, 1, 11, 1, 11, 1, 11];
+	let stack = [1, 0, 5, 1, 5, 1, 5, 1, 2];
+    arraycopy(loop, 0, mem, 0, loop.length);
+    arraycopy(jump, 0, mem, loop.length , jump.length);
+    arraycopy(jump2, 0, mem, loop.length + jump.length , jump2.length);
+    arraycopy(jump3, 0, mem, loop.length + 2 * jump.length , jump3.length);
+    arraycopy(jump4, 0, mem, loop.length + 3 * jump.length , jump4.length);
+    arraycopy(stack , 0, mem, b, stack.length);
+		
+    let allowedOpcodes = [];//opcodes i want to compile
+    allowedOpcodes[0] = false; 
+    allowedOpcodes[1] = false; 
+    allowedOpcodes[2] = false; 
+    allowedOpcodes[3] = false;
+    allowedOpcodes[4] = true; 
+    allowedOpcodes[5] = false;
+    allowedOpcodes[6] = true; 
+    allowedOpcodes[7] = true; 
+    allowedOpcodes[8] = false;
+    allowedOpcodes[9] = true; 
+    allowedOpcodes[10] = true; 
+    allowedOpcodes[11] = true; 
+    allowedOpcodes[12] = true; 
+    allowedOpcodes[13] = true; 
+    allowedOpcodes[14] = true; 
+    allowedOpcodes[15] = true; 
+
+function isAllowed(op) {
+   	return allowedOpcodes[op];
+}    
+function arraycopy(src, fromIndex, dest, destIndex, length) {
+	for(i=0;i<length;i++){
+		dest[destIndex++]=src[fromIndex++];
+	}
+}
+function run() {
+	var opCodes = [];
+    var compiledOpCodesFreq = {};
+    var compiledOpCodes = {};
+    var offset = cpu.ip;
+
+	
+	while ( true ) {
+        //System.out.println("opcode: " + mem[ip] + " at ip " + ip);
+        let op = mem[offset++]; 
+        if(isAllowed(op)) {
+        	opCodes.push(op);
+        } else {
+        	if(opCodes.length >= 2) {
+	        	let hash = genHash(opCodes);
+	        	let fun = compiledOpCodes[hash];
+	        	if(fun == undefined) {
+		        	let freq = compiledOpCodesFreq[hash];
+		        	if(freq == undefined){
+	    	        	compiledOpCodesFreq[hash] = 1;
+	        		} else {
+	            		compiledOpCodesFreq[hash] = freq + 1;        
+	            		if(freq == 1000) {
+	            			compiledOpCodes[hash] = compile(opCodes);
+	        			}
+	    			}
+	    		} else {
+	    			fun.apply();	    			
+	            	opCodes = [];
+        			if(!decodeOp(op)) {
+        				break;
+    				}        		
+		            offset = cpu.ip;
+					continue;
+	    		}
+    		}
+        	if(!decodeOps(opCodes)) {
+        		break;
+        	}
+        	opCodes = [];
+        	if(!decodeOp(op)) {
+        		break;
+    		}        		
+            offset = cpu.ip;
+        }    	
+    }
+    console.log("done cpu.opCounter=" + cpu.opCounter);
+}
+    function compile(opcodes) {
+    	var sb = "(function(){";
+    	for(i=0; i < opcodes.length;i++) {
+    		sb = sb + "cpu.opCounter++;";
+    		let op = opcodes[i];
+	    	switch (op) {
+		        case LOAD_EAX_MEM:
+		        	sb = sb + "cpu.eax = mem[cpu.sp];";
+        			sb = sb + "cpu.ip++;";
+		            break;
+		        case STORE_EAX:
+		        	sb = sb + "mem[cpu.sp] = cpu.eax;";
+        			sb = sb + "cpu.ip++;";
+		            break;
+		        case LOAD_EBX_MEM:
+		        	sb = sb + "cpu.ebx = mem[cpu.sp];";
+        			sb = sb + "cpu.ip++;";
+		            break;
+		        case STORE_EBX:
+		        	sb = sb + "mem[cpu.sp] = cpu.ebx;";
+        			sb = sb + "cpu.ip++;";
+		            break;
+		        case STORE_1:
+		        	sb = sb + "mem[cpu.sp] = 1;";
+        			sb = sb + "cpu.ip++;";
+		            break;
+		        case INC:
+		        	sb = sb + "cpu.eax++;";
+        			sb = sb + "cpu.ip++;";
+		            break;
+		        case ADD:
+		        	sb = sb + "cpu.eax += cpu.ebx;";
+        			sb = sb + "cpu.ip++;";
+		            break;
+		        case MUL:
+		        	sb = sb + "cpu.eax *= cpu.ebx;";
+        			sb = sb + "cpu.ip++;";
+		            break;
+		        case DIV:
+		        	sb = sb + "cpu.eax /= cpu.ebx;";
+        			sb = sb + "cpu.ip++;";
+		            break;
+		        case XOR:
+		        	sb = sb + "cpu.eax ^= cpu.ebx;";
+        			sb = sb + "cpu.ip++;";
+		            break;
+                default:
+                    throw new Error("not expected!. opcode = " + op);
+	    	}
+    	}
+    	return eval(sb + "});");
+    }
+	function genHash(ops) {
+    	var hash = 37;
+    	for(i=0;i< ops.length;i++) {
+    		hash = hash * 37 + ops[i];
+    	}
+    	return hash;
+    }
+    function decodeOps(ops) {
+        for(i=0; i < ops.length; i++) {
+        	if(!decodeOp(ops[i])){
+        		return false;
+        	}
+        }
+        return true;
+    }
+    function decodeOp(op) {
+    	cpu.opCounter++;
+        if(op == HALT) {
+            return false;
+        }
+        else if(op == JUMP) {
+            ip = mem[cpu.ip + 1];
+        }
+        else if(op == BNE) {
+            if (cpu.eax != cpu.ebx)
+                cpu.ip = mem[cpu.ip + 1];
+            else
+                cpu.ip += 2;
+        }
+        else if(op == LOAD_SP) {
+                cpu.sp = mem[cpu.ip + 1];
+                cpu.ip += 2;
+        }
+        else if(op == LOAD_EAX_MEM) {
+                cpu.eax = mem[cpu.sp];
+                cpu.ip++;
+        }
+        else if(op == LOAD_EAX_IB) {
+                cpu.eax = mem[cpu.ip + 1];
+                cpu.ip += 2;
+        }
+        else if(op == STORE_EAX) {
+                mem[cpu.sp] = cpu.eax;
+                cpu.ip++;
+        }
+        else if(op == LOAD_EBX_MEM) {
+                cpu.ebx = mem[cpu.sp];
+                cpu.ip++;
+        }
+        else if(op == LOAD_EBX_IB) {
+                cpu.ebx = mem[cpu.ip + 1];
+                cpu.ip += 2;
+        }
+        else if(op == STORE_EBX) {
+                mem[cpu.sp] = cpu.ebx;
+                cpu.ip++;
+        }
+        else if(op == STORE_1) {
+                mem[cpu.sp] = 1;
+                cpu.ip++;
+        }
+        else if(op == INC) {
+                cpu.eax++;
+                cpu.ip++;
+        }
+        else if(op == ADD) {
+                cpu.eax += cpu.ebx;
+                cpu.ip++;
+        }
+        else if(op == MUL) {
+                cpu.eax *= cpu.ebx;
+                cpu.ip++;
+        }
+        else if(op == DIV) {
+                cpu.eax /= cpu.ebx;
+            	cpu.ip++;
+         }
+        else if(op == XOR) {
+                cpu.eax ^= cpu.ebx;
+                cpu.ip++;
+        }
+        else {
+             console.log("Illegal opcode: " + op);
+            return false;;
+        }
+        return true;
+	}
+run();
+</script>
+</body>
+</html>
